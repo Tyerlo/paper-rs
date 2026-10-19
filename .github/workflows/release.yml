@@ -1,0 +1,96 @@
+name: Release builds
+
+# Pushes to main build all three platforms and keep them as workflow artifacts.
+# Pushing a v* tag also attaches them to a draft GitHub release to review and publish.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - shell: pwsh
+        run: Compress-Archive target/release/paper-rs.exe, target/release/paper-rs-mcp.exe paper-rs-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-rs-windows-x64
+          path: paper-rs-windows-x64.zip
+
+  linux:
+    runs-on: ubuntu-22.04 # older glibc so the binary runs on more distros
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - run: tar -czf paper-rs-linux-x64.tar.gz -C target/release paper-rs paper-rs-mcp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-rs-linux-x64
+          path: paper-rs-linux-x64.tar.gz
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+      # ponytail: unsigned and not notarized, so Gatekeeper makes users right-click > Open.
+      # Add codesign and notarytool here once there is a Developer ID certificate.
+      - name: Build universal .app and DMG
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          macos=dist/paper-rs.app/Contents/MacOS
+          mkdir -p "$macos"
+          for bin in paper-rs paper-rs-mcp; do
+            lipo -create -output "$macos/$bin" \
+              target/aarch64-apple-darwin/release/$bin target/x86_64-apple-darwin/release/$bin
+          done
+          cat > dist/paper-rs.app/Contents/Info.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>paper-rs</string>
+            <key>CFBundleExecutable</key><string>paper-rs</string>
+            <key>CFBundleIdentifier</key><string>io.github.michaelshimeles.paper-rs</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          ln -s /Applications dist/Applications
+          hdiutil create -volname paper-rs -srcfolder dist -format UDZO paper-rs-universal.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-rs-macos-universal
+          path: paper-rs-universal.dmg
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
+            paper-rs-universal.dmg paper-rs-windows-x64.zip paper-rs-linux-x64.tar.gz
