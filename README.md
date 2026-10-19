@@ -41,6 +41,23 @@ double-click to rename, right-click to duplicate or delete, drag to reorder). Ea
 own infinite canvas with its own undo history and view. Copy and paste works between pages and
 between projects.
 
+## Download
+
+Each [GitHub release](../../releases) has builds for three platforms:
+
+| Platform | File |
+|---|---|
+| macOS (Apple Silicon and Intel) | `paper-rs-universal.dmg` |
+| Windows x64 | `paper-rs-windows-x64.zip` |
+| Linux x64 | `paper-rs-linux-x64.tar.gz` |
+
+Each one contains `paper-rs` and the `paper-rs-mcp` bridge. The Mac app is not signed yet, so
+the first time you open it, right-click it and choose Open. On Linux, install the runtime
+libraries listed under [Linux](#linux).
+
+`.github/workflows/release.yml` builds all three on every push to `main`. Pushing a `v*` tag
+also attaches them to a draft release, which goes public once someone publishes it.
+
 ## Build and run
 
 You need Rust 1.95 or newer (`rust-version` in `Cargo.toml`; the latest stable is recommended). Install it with [rustup](https://rustup.rs).
